@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 import sqlite3
 
-API_TOKEN = '6688793178:AAHJYpnizrycS29Jl0HxIYH8eBRRLfKei8o'
+API_TOKEN = ''
 
 logging.basicConfig(level=logging.INFO)
 
