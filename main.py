@@ -3,7 +3,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 import sqlite3
 
-API_TOKEN = '6688793178:AAHJYpnizrycS29Jl0HxIYH8eBRRLfKei8o'
+API_TOKEN = ''
 
 logging.basicConfig(level=logging.INFO)
 
@@ -69,13 +69,25 @@ async def get_description(table_id, object_id):
     cursor = connect.cursor()
     cursor.execute('''SELECT description FROM ''' + names_dict[table_id] + ''' WHERE '''
                    + id_post_dict[table_id] + '''=''' + object_id)
-    desc = cursor.fetchone()[0] if not (cursor.fetchone()[0] is None) else 'None'
+    current_desc = cursor.fetchone()[0]
+    desc = 'None' if current_desc is None else current_desc
     connect.close()
     return "*" + desc + "*"
 
 
-async def desc_answer(message, desc):
-    await message.answer("Текущее описание объекта:\n" + desc + "\nДля изменения напишите /edit", parse_mode=types.ParseMode.MARKDOWN)
+async def get_name(table_id, object_id):
+    connect = sqlite3.connect("Labels_data.db")
+    cursor = connect.cursor()
+    cursor.execute('''SELECT name FROM ''' + names_dict[table_id] + ''' WHERE '''
+                   + id_post_dict[table_id] + '''=''' + object_id)
+    current_name = cursor.fetchone()[0]
+    connect.close()
+    return "*" + current_name + "*"
+
+
+async def desc_answer(message, c_name, desc):
+    full_mess = "Текущее имя объекта:\n" + c_name + "\nТекущее описание объекта:\n" + desc + "\nДля изменения имени напишите /editname, для изменения описания /edit"
+    await message.answer(full_mess, parse_mode=types.ParseMode.MARKDOWN)
 
 
 @dp.message_handler(lambda message: message.text in nums_data)
@@ -96,9 +108,11 @@ async def choose_product(message: types.Message):
             await choose_selection(message, previous_choice['selection'])
         else:
             user_choices[user_id]['id_selection'] = user_choice
-            await desc_answer(message,
-                              await get_description(user_choices[user_id]['selection'],
-                                                    user_choices[user_id]['id_selection']))
+            c_name = await get_name(user_choices[user_id]['selection'],
+                                    user_choices[user_id]['id_selection'])
+            desc = await get_description(user_choices[user_id]['selection'],
+                                         user_choices[user_id]['id_selection'])
+            await desc_answer(message, c_name, desc)
 
 
 @dp.message_handler(commands=['edit'])
@@ -113,6 +127,18 @@ async def cmd_edit(message: types.Message):
         await message.answer('''Введите новое описание''')
 
 
+@dp.message_handler(commands=['editname'])
+async def cmd_change_name(message: types.Message):
+    if message.from_user.id not in user_choices:
+        await cmd_start(message)
+    elif 'selection' not in user_choices[message.from_user.id] or 'id_selection' not in user_choices[message.from_user.id]:
+        await message.answer('''Вы не выбрали объект''')
+        await cmd_start(message)
+    else:
+        user_choices[message.from_user.id]['editname'] = 'start'
+        await message.answer('''Введите новое имя''')
+
+
 @dp.message_handler(commands=['cancel'])
 async def cmd_cancel(message: types.Message):
     await cmd_start(message)
@@ -122,20 +148,31 @@ async def cmd_cancel(message: types.Message):
 async def cmd_commit(message: types.Message):
     if message.from_user.id in user_choices:
         user_id = message.from_user.id
-        if 'selection' in user_choices[user_id] and 'id_selection' in user_choices[user_id] and 'value' in user_choices[user_id]:
-            except_process = await update_description(user_choices[user_id]['selection'],
-                                     user_choices[user_id]['id_selection'],
-                                     user_choices[user_id]['value'])
-            if not except_process:
-                await message.answer('''Обновление выполнено''')
-    return
+        if 'edit' in user_choices[user_id]:
+            if user_choices[user_id]['edit'] == 'stop':
+                if 'selection' in user_choices[user_id] and 'id_selection' in user_choices[user_id] and 'value' in user_choices[user_id]:
+                    except_process = await update_description(user_choices[user_id]['selection'],
+                                                              user_choices[user_id]['id_selection'],
+                                                              user_choices[user_id]['value'],
+                                                              'description')
+                    if not except_process:
+                        await message.answer('''Обновление выполнено''')
+        elif 'editname' in user_choices[user_id]:
+            if user_choices[user_id]['editname'] == 'stop':
+                if 'selection' in user_choices[user_id] and 'id_selection' in user_choices[user_id] and 'name_value' in user_choices[user_id]:
+                    except_process = await update_description(user_choices[user_id]['selection'],
+                                                              user_choices[user_id]['id_selection'],
+                                                              user_choices[user_id]['name_value'],
+                                                              'name')
+                    if not except_process:
+                        await message.answer('''Обновление выполнено''')
+    await cmd_start(message)
 
 
-
-async def update_description(table_id, object_id, new_value):
+async def update_description(table_id, object_id, new_value, fold):
     connect = sqlite3.connect("Labels_data.db")
     cursor = connect.cursor()
-    cursor.execute('''UPDATE ''' + names_dict[table_id] + ''' SET description=\'''' + new_value + '''\' WHERE '''
+    cursor.execute('''UPDATE ''' + names_dict[table_id] + ''' SET ''' + fold + '''=\'''' + new_value + '''\' WHERE '''
                    + id_post_dict[table_id] + '''=''' + object_id)
     connect.commit()
     connect.close()
@@ -154,6 +191,15 @@ async def handle_message(message: types.Message):
                                      await get_description(user_choices[user_id]['selection'],
                                                            user_choices[user_id]['id_selection']) +
                                      "\nНовое описание\n*" + user_choices[user_id]['value'] +
+                                     "*\n Для коммита введите /commit, а для отмены введите /cancel", parse_mode=types.ParseMode.MARKDOWN)
+        if 'editname' in user_choices[user_id]:
+            if user_choices[user_id]['editname'] == 'start':
+                user_choices[user_id]['editname'] = 'stop'
+                user_choices[user_id]['name_value'] = message.text
+                await message.answer("Старое имя:\n" +
+                                     await get_name(user_choices[user_id]['selection'],
+                                                    user_choices[user_id]['id_selection']) +
+                                     "\nНовое имя\n*" + user_choices[user_id]['name_value'] +
                                      "*\n Для коммита введите /commit, а для отмены введите /cancel", parse_mode=types.ParseMode.MARKDOWN)
     return
 
